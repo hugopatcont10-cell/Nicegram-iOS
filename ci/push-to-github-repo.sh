@@ -1,4 +1,7 @@
-. ./fastlane-env.sh
+#!/bin/bash
+# Keep the shebang: _env.sh's worktree fallback is `. a || . b`, which under
+# /bin/sh dies on the first miss instead of falling back. _env.sh explains it.
+. ./_env.sh
 
 target_branch=$1
 commit_message=$2

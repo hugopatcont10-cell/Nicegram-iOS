@@ -37,7 +37,25 @@ pipelines:
             - cp -r . $GH_REPO_PATH
             
             - cd $GH_REPO_PATH
+            # Fork-internal tooling and process docs stay out of the public mirror.
+            # Safe to delete here (unlike packages/, which Package.swift and
+            # MODULE.bazel require present): nothing in the build reads either path.
+            - rm -rf .claude docs/superpowers docs/tg-merge
+            # Assert the private package is recorded as a gitlink, never as
+            # files. The mirror must keep packages/ as a submodule reference —
+            # Package.swift and MODULE.bazel require it present for the release
+            # build (.github/workflows/beta.yml, master.yml) to resolve at all.
             - git add .
+            - |
+              n=$(git ls-files --stage -- packages | wc -l | tr -d ' ')
+              bad=$(git ls-files --stage -- packages | awk '$1 != "160000"')
+              if [ "$n" -lt 1 ] || [ -n "$bad" ]; then
+                echo "ERROR: packages/ has an entry that is not a gitlink ($n entries staged; non-160000 rows: $bad)"; exit 1
+              fi
+            - |
+              if git diff --cached --name-only --diff-filter=d | grep -qE '^(\.claude|docs/superpowers|docs/tg-merge)/'; then
+                echo "ERROR: fork-internal docs staged for the public mirror"; exit 1
+              fi
             - git config user.email "denis.shilovichhh@gmail.com"
             - git config user.name "Denis Shilovich"
             - git commit --allow-empty -m "$CommitMessage"

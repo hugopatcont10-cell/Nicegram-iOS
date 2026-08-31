@@ -534,6 +534,12 @@ private extension Api.Chat {
                 return PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channel.id))
             case let .channelForbidden(channelForbidden):
                 return PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelForbidden.id))
+            // Upstream 12.9.2 added communities. They live in the CloudChannel
+            // namespace -- same as parseTelegramCommunity in TelegramCore.
+            case let .community(community):
+                return PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(community.id))
+            case let .communityForbidden(communityForbidden):
+                return PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(communityForbidden.id))
         }
     }
 }

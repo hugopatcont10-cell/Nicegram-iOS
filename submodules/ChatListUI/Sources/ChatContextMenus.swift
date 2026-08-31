@@ -64,6 +64,33 @@ enum ChatContextMenuSource {
     case search(ChatListSearchContextActionSource)
 }
 
+private func chatContextMenuPeerIsMuted(peer: EnginePeer, notificationSettings: EnginePeer.NotificationSettings, globalNotificationSettings: EngineGlobalNotificationSettings) -> Bool {
+    switch notificationSettings.muteState {
+    case let .muted(until):
+        return until >= Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
+    case .unmuted:
+        return false
+    case .default:
+        switch peer {
+        case .user:
+            return !globalNotificationSettings.privateChats.enabled
+        case .legacyGroup:
+            return !globalNotificationSettings.groupChats.enabled
+        case let .channel(channel):
+            switch channel.info {
+            case .group:
+                return !globalNotificationSettings.groupChats.enabled
+            case .broadcast:
+                return !globalNotificationSettings.channels.enabled
+            }
+        case .community:
+            return true
+        case .secretChat:
+            return false
+        }
+    }
+}
+
 func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoInfo: ChatListNodeEntryPromoInfo?, source: ChatContextMenuSource, chatListController: ChatListControllerImpl?, joined: Bool) -> Signal<[ContextMenuItem], NoError> {
     let presentationData = context.sharedContext.currentPresentationData.with({ $0 })
     let strings = presentationData.strings
@@ -201,23 +228,7 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             }
                         }
                         
-                        var isMuted = false
-                        if case let .muted(until) = notificationSettings.muteState, until >= Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970) {
-                            isMuted = true
-                        } else if case .default = notificationSettings.muteState {
-                            if case .user = peer {
-                                isMuted = !globalNotificationSettings.privateChats.enabled
-                            } else if case .legacyGroup = peer {
-                                isMuted = !globalNotificationSettings.groupChats.enabled
-                            } else if case let .channel(channel) = peer {
-                                switch channel.info {
-                                case .group:
-                                    isMuted = !globalNotificationSettings.groupChats.enabled
-                                case .broadcast:
-                                    isMuted = !globalNotificationSettings.channels.enabled
-                                }
-                            }
-                        }
+                        let isMuted = chatContextMenuPeerIsMuted(peer: peer, notificationSettings: notificationSettings, globalNotificationSettings: globalNotificationSettings)
                         
                         var isUnread = false
                         if readCounters.isUnread {
@@ -227,6 +238,12 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                         var isForum = false
                         if case let .channel(channel) = peer, channel.isForumOrMonoForum {
                             isForum = true
+                        }
+                        let isCommunity: Bool
+                        if case .community = peer {
+                            isCommunity = true
+                        } else {
+                            isCommunity = false
                         }
                         
                         var hasRemoveFromFolder = false
@@ -413,131 +430,116 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             }
                         }
                         
-                        // Nicegram AiChatAnalysis
-                        let aiChatAnalysisModule = AiChatAnalysisModule.shared
-                        let getAiChatAnalysisConfigUseCase = aiChatAnalysisModule.getConfigUseCase()
-                        let aiChatAnalysisAvailable = getAiChatAnalysisConfigUseCase().availability.chatContextMenu
-                        if aiChatAnalysisAvailable {
-                            if case .separator = items.last {} else {
-                                items.append(.separator)
-                            }
-                            
-                            items.append(.action(ContextMenuActionItem(
-                                text: FeatAiChatAnalysis.strings.aiChatAnalysis(),
-                                icon: { theme in
-                                    generateTintedImage(
-                                        image: NGCoreUI.images.aiChatAnalysis(),
-                                        color: theme.contextMenu.primaryColor
-                                    )
-                                },
-                                action: { _, f in
-                                    AiChatAnalysisHelper(context: context).presentFromChatContextMenu(
-                                        peerId: peerId
-                                    )
-                                    f(.default)
+                        if !isCommunity {
+                            // Nicegram AiChatAnalysis
+                            let aiChatAnalysisModule = AiChatAnalysisModule.shared
+                            let getAiChatAnalysisConfigUseCase = aiChatAnalysisModule.getConfigUseCase()
+                            let aiChatAnalysisAvailable = getAiChatAnalysisConfigUseCase().availability.chatContextMenu
+                            if aiChatAnalysisAvailable {
+                                if case .separator = items.last {} else {
+                                    items.append(.separator)
                                 }
-                            )))
                             
-                            // Nicegram ChatExport
-                            items.append(.action(ContextMenuActionItem(
-                                text: FeatChatExport.strings.exportChatBtn(),
-                                icon: { theme in
-                                    generateTintedImage(
-                                        image: UIImage(bundleImageName: "Chat/Context Menu/Forward"),
-                                        color: theme.contextMenu.primaryColor
-                                    )
-                                },
-                                action: { controller, _ in
-                                    let exportChatViewModel = ExportChatViewModel(
-                                        peer: peer._asPeer().toTelegramBridgePeer()
-                                    )
-                                    
-                                    var subItems: [ContextMenuItem] = []
-                                    
-                                    appendBackItem(items: &subItems)
-                                    
-                                    let options = exportChatViewModel.getOptions()
-                                    for option in options {
-                                        let item = ContextMenuActionItem(
-                                            text: option.title,
-                                            icon: { _ in nil },
-                                            action: { _, f in
-                                                Task { @MainActor in
-                                                    try await exportChatViewModel.export(using: option)
-                                                    
-                                                    let toastController = UndoOverlayController(
-                                                        presentationData: presentationData,
-                                                        content: .forward(
-                                                            savedMessages: true,
-                                                            text: FeatChatExport.strings.chatExportedToastTitle()
-                                                        ),
-                                                        action: { _ in true }
-                                                    )
-                                                    chatListController?.present(toastController, in: .current)
-                                                }
-                                                
-                                                f(.dismissWithoutContent)
-                                            }
-                                        )
-                                        subItems.append(.action(item))
-                                    }
-                                    
-                                    controller?.setItems(.single(.init(content: .list(subItems))), minHeight: nil, animated: true)
-                                }
-                            )))
-                            //
-                            
-                            func copySourceMessages(_ count: Int) {
-                                Task {
-                                    let messages = try await context.engine.messages
-                                        .allMessages(
-                                            peerId: peerId,
-                                            namespace: Namespaces.Message.Cloud
-                                        )
-                                        .awaitForFirstValue()
-                                        .sorted { $0.timestamp < $1.timestamp }
-                                        .suffix(count)
-                                        .toSourceMessages(context: context)
-                                    
-                                    let sourceDataEncoder = aiChatAnalysisModule.sourceDataEncoder()
-                                    let sourceMessagesString = sourceDataEncoder.toString(messages: messages)
-                                    
-                                    Task { @MainActor in
-                                        UIPasteboard.general.string = sourceMessagesString
-                                        
-                                        try await Task.sleep(seconds: 0.2)
-                                        
-                                        let toastController = UndoOverlayController(
-                                            presentationData: presentationData,
-                                            content: .copy(
-                                                text: presentationData.strings.Conversation_TextCopied
-                                            ),
-                                            action: { _ in true }
-                                        )
-                                        chatListController?.present(toastController, in: .current)
-                                    }
-                                }
-                            }
-                            
-                            let messagesCount = 100
-                            items.append(.action(ContextMenuActionItem(
-                                text: FeatAiChatAnalysis.strings.copyLastMessages(messagesCount),
-                                icon: { theme in
-                                    generateTintedImage(
-                                        image: UIImage(bundleImageName: "Chat/Context Menu/Copy"),
-                                        color: theme.contextMenu.primaryColor
-                                    )
-                                },
-                                action: { _, f in
-                                    copySourceMessages(messagesCount)
-                                    f(.default)
-                                }
-                            )))
-                            
-                            let unreadCount = Int(readCounters.count)
-                            if unreadCount > 0 {
                                 items.append(.action(ContextMenuActionItem(
-                                    text: FeatAiChatAnalysis.strings.copyUnreadMessages(),
+                                    text: FeatAiChatAnalysis.strings.aiChatAnalysis(),
+                                    icon: { theme in
+                                        generateTintedImage(
+                                            image: NGCoreUI.images.aiChatAnalysis(),
+                                            color: theme.contextMenu.primaryColor
+                                        )
+                                    },
+                                    action: { _, f in
+                                        AiChatAnalysisHelper(context: context).presentFromChatContextMenu(
+                                            peerId: peerId
+                                        )
+                                        f(.default)
+                                    }
+                                )))
+                            
+                                // Nicegram ChatExport
+                                items.append(.action(ContextMenuActionItem(
+                                    text: FeatChatExport.strings.exportChatBtn(),
+                                    icon: { theme in
+                                        generateTintedImage(
+                                            image: UIImage(bundleImageName: "Chat/Context Menu/Forward"),
+                                            color: theme.contextMenu.primaryColor
+                                        )
+                                    },
+                                    action: { controller, _ in
+                                        let exportChatViewModel = ExportChatViewModel(
+                                            peer: peer._asPeer().toTelegramBridgePeer()
+                                        )
+                                    
+                                        var subItems: [ContextMenuItem] = []
+                                    
+                                        appendBackItem(items: &subItems)
+                                    
+                                        let options = exportChatViewModel.getOptions()
+                                        for option in options {
+                                            let item = ContextMenuActionItem(
+                                                text: option.title,
+                                                icon: { _ in nil },
+                                                action: { _, f in
+                                                    Task { @MainActor in
+                                                        try await exportChatViewModel.export(using: option)
+                                                    
+                                                        let toastController = UndoOverlayController(
+                                                            presentationData: presentationData,
+                                                            content: .forward(
+                                                                savedMessages: true,
+                                                                text: FeatChatExport.strings.chatExportedToastTitle()
+                                                            ),
+                                                            action: { _ in true }
+                                                        )
+                                                        chatListController?.present(toastController, in: .current)
+                                                    }
+                                                
+                                                    f(.dismissWithoutContent)
+                                                }
+                                            )
+                                            subItems.append(.action(item))
+                                        }
+                                    
+                                        controller?.setItems(.single(.init(content: .list(subItems))), minHeight: nil, animated: true)
+                                    }
+                                )))
+                                //
+                            
+                                func copySourceMessages(_ count: Int) {
+                                    Task {
+                                        let messages = try await context.engine.messages
+                                            .allMessages(
+                                                peerId: peerId,
+                                                namespace: Namespaces.Message.Cloud
+                                            )
+                                            .awaitForFirstValue()
+                                            .sorted { $0.timestamp < $1.timestamp }
+                                            .suffix(count)
+                                            .toSourceMessages(context: context)
+                                    
+                                        let sourceDataEncoder = aiChatAnalysisModule.sourceDataEncoder()
+                                        let sourceMessagesString = sourceDataEncoder.toString(messages: messages)
+                                    
+                                        Task { @MainActor in
+                                            UIPasteboard.general.string = sourceMessagesString
+                                        
+                                            try await Task.sleep(seconds: 0.2)
+                                        
+                                            let toastController = UndoOverlayController(
+                                                presentationData: presentationData,
+                                                content: .copy(
+                                                    text: presentationData.strings.Conversation_TextCopied
+                                                ),
+                                                action: { _ in true }
+                                            )
+                                            chatListController?.present(toastController, in: .current)
+                                        }
+                                    }
+                                }
+                            
+                                let messagesCount = 100
+                                items.append(.action(ContextMenuActionItem(
+                                    text: FeatAiChatAnalysis.strings.copyLastMessages(messagesCount),
                                     icon: { theme in
                                         generateTintedImage(
                                             image: UIImage(bundleImageName: "Chat/Context Menu/Copy"),
@@ -545,31 +547,48 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                                         )
                                     },
                                     action: { _, f in
-                                        copySourceMessages(unreadCount)
+                                        copySourceMessages(messagesCount)
                                         f(.default)
                                     }
                                 )))
-                            }
                             
-                            items.append(.separator)
-                        }
-                        //
-                        
-                        if isUnread {
-                            items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_MarkAsRead, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/MarkAsRead"), color: theme.contextMenu.primaryColor) }, action: { _, f in
-                                let _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: nil).startStandalone()
-                                f(.default)
-                            })))
-                        } else if !isForum {
-                            var canMarkAsUnread = true
-                            if peerId.namespace == Namespaces.Peer.CloudChannel && joined {
-                                canMarkAsUnread = false
+                                let unreadCount = Int(readCounters.count)
+                                if unreadCount > 0 {
+                                    items.append(.action(ContextMenuActionItem(
+                                        text: FeatAiChatAnalysis.strings.copyUnreadMessages(),
+                                        icon: { theme in
+                                            generateTintedImage(
+                                                image: UIImage(bundleImageName: "Chat/Context Menu/Copy"),
+                                                color: theme.contextMenu.primaryColor
+                                            )
+                                        },
+                                        action: { _, f in
+                                            copySourceMessages(unreadCount)
+                                            f(.default)
+                                        }
+                                    )))
+                                }
+                            
+                                items.append(.separator)
                             }
-                            if canMarkAsUnread {
-                                items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_MarkAsUnread, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/MarkAsUnread"), color: theme.contextMenu.primaryColor) }, action: { _, f in
+                            //
+                        
+                            if isUnread {
+                                items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_MarkAsRead, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/MarkAsRead"), color: theme.contextMenu.primaryColor) }, action: { _, f in
                                     let _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: nil).startStandalone()
                                     f(.default)
                                 })))
+                            } else if !isForum {
+                                var canMarkAsUnread = true
+                                if peerId.namespace == Namespaces.Peer.CloudChannel && joined {
+                                    canMarkAsUnread = false
+                                }
+                                if canMarkAsUnread {
+                                    items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_MarkAsUnread, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/MarkAsUnread"), color: theme.contextMenu.primaryColor) }, action: { _, f in
+                                        let _ = context.engine.messages.togglePeersUnreadMarkInteractively(peerIds: [peerId], setToValue: nil).startStandalone()
+                                        f(.default)
+                                    })))
+                                }
                             }
                         }
                         
@@ -651,23 +670,7 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             }
                             
                             if !isSavedMessages {
-                                var isMuted = false
-                                if case let .muted(until) = notificationSettings.muteState, until >= Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970) {
-                                    isMuted = true
-                                } else if case .default = notificationSettings.muteState {
-                                    if case .user = peer {
-                                        isMuted = !globalNotificationSettings.privateChats.enabled
-                                    } else if case .legacyGroup = peer {
-                                        isMuted = !globalNotificationSettings.groupChats.enabled
-                                    } else if case let .channel(channel) = peer {
-                                        switch channel.info {
-                                        case .group:
-                                            isMuted = !globalNotificationSettings.groupChats.enabled
-                                        case .broadcast:
-                                            isMuted = !globalNotificationSettings.channels.enabled
-                                        }
-                                    }
-                                }
+                                let isMuted = chatContextMenuPeerIsMuted(peer: peer, notificationSettings: notificationSettings, globalNotificationSettings: globalNotificationSettings)
                                 items.append(.action(ContextMenuActionItem(text: isMuted ? strings.ChatList_Context_Unmute : strings.ChatList_Context_Mute, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isMuted ? "Chat/Context Menu/Unmute" : "Chat/Context Menu/Muted"), color: theme.contextMenu.primaryColor) }, action: { _, f in
                                     let _ = (context.engine.peers.togglePeerMuted(peerId: peerId, threadId: nil)
                                              |> deliverOnMainQueue).startStandalone(completed: {
@@ -787,7 +790,7 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                                                 didJoin = true
                                             case let .webView(webView):
                                                 if let chatListController = chatListController {
-                                                    context.sharedContext.openJoinChatWebView(context: context, parentController: chatListController, updatedPresentationData: nil, webView: webView)
+                                                    context.sharedContext.openJoinChatWebView(context: context, parentController: chatListController, updatedPresentationData: nil, webView: webView, chatTitle: EnginePeer(peer).compactDisplayTitle)
                                                 }
                                             }
                                         }, error: { _ in
@@ -815,13 +818,24 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             }
                         }
                         
+                        let appendDeleteOrUngroupItem = {
+                            if case .community = peer {
+                                items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Ungroup, textColor: .destructive, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Ungroup"), color: theme.contextMenu.destructiveColor) }, action: { _, f in
+                                    chatListController?.ungroupCommunity(communityId: peerId)
+                                    f(.default)
+                                })))
+                            } else {
+                                items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Delete, textColor: .destructive, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Delete"), color: theme.contextMenu.destructiveColor) }, action: { _, f in
+                                    if let chatListController = chatListController {
+                                        chatListController.deletePeerChat(peerId: peerId, joined: joined)
+                                    }
+                                    f(.default)
+                                })))
+                            }
+                        }
+
                         if case .chatList = source, peerGroup != nil {
-                            items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Delete, textColor: .destructive, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Delete"), color: theme.contextMenu.destructiveColor) }, action: { _, f in
-                                if let chatListController = chatListController {
-                                    chatListController.deletePeerChat(peerId: peerId, joined: joined)
-                                }
-                                f(.default)
-                            })))
+                            appendDeleteOrUngroupItem()
                         } else if case let .search(search) = source {
                             switch search {
                             case .recentPeers, .search:
@@ -850,12 +864,7 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                                             addedSeparator = true
                                         }
                                     }
-                                    items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Delete, textColor: .destructive, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Delete"), color: theme.contextMenu.destructiveColor) }, action: { _, f in
-                                        if let chatListController = chatListController {
-                                            chatListController.deletePeerChat(peerId: peerId, joined: joined)
-                                        }
-                                        f(.default)
-                                    })))
+                                    appendDeleteOrUngroupItem()
                                 }
                             default:
                                  break

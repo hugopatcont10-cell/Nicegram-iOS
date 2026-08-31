@@ -7,6 +7,7 @@
 #import "InstanceImpl.h"
 #import "v2/InstanceV2Impl.h"
 #import "v2/InstanceV2ReferenceImpl.h"
+#import "v2/InstanceV2CompatImpl.h"
 #include "StaticThreads.h"
 
 #import "VideoCaptureInterface.h"
@@ -1661,6 +1662,7 @@ static void (*InternalVoipLoggingFunction)(NSString *) = NULL;
         tgcalls::Register<tgcalls::InstanceImpl>();
         tgcalls::Register<tgcalls::InstanceV2Impl>();
         tgcalls::Register<tgcalls::InstanceV2ReferenceImpl>();
+        tgcalls::Register<tgcalls::InstanceV2CompatImpl>();
     });
 }
 

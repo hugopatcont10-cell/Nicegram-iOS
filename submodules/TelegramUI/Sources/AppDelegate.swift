@@ -439,7 +439,6 @@ private class UserInterfaceStyleObserverWindow: UIWindow {
                 premiumProductId: NGENV.premium_bundle,
                 privacyUrl: URL(string: "https://nicegram.app/privacy-policy")!,
                 referralBot: NGENV.referral_bot,
-                remoteConfigCacheDurationSeconds: NGENV.remote_config_cache_duration_seconds,
                 telegramAuthBot: NGENV.telegram_auth_bot,
                 termsUrl: URL(string: "https://nicegram.app/terms-of-use")!,
                 webSocketUrl: NGENV.websocket_url

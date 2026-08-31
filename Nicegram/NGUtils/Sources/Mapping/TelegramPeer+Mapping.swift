@@ -31,6 +31,25 @@ public extension Postbox.Peer {
                 participationStatus: participationStatus,
                 username: username
             )
+        case let .community(community):
+            // Upstream 12.9.2 added `EnginePeer.community`. `TelegramSealedPeer`
+            // has no community case, and adding one is an assistant-side change,
+            // so map it to the closest existing shape: a group-like channel. A
+            // community is a CloudChannel-namespace peer with member/left
+            // participation and group admin/banned rights.
+            let participationStatus: TelegramBridge.TelegramChannelParticipationStatus = switch community.participationStatus {
+            case .member: .member
+            case .left: .left
+            case .kicked: .kicked
+            }
+
+            return TelegramBridge.TelegramChannel(
+                displayName: displayName,
+                id: id,
+                info: .group,
+                participationStatus: participationStatus,
+                username: username
+            )
         case let .legacyGroup(group):
             let participationStatus: TelegramBridge.TelegramChannelParticipationStatus = switch group.membership {
             case .Member: .member

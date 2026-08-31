@@ -108,7 +108,7 @@ func textInputContextPanel(context: AccountContext, chatPresentationInterfaceSta
                 }
             }
             
-            let query = chatPresentationInterfaceState.interfaceState.composeInputState.inputText.string
+            let query = chatPresentationInterfaceState.interfaceState.composeInputState.content.plainText
             
             if let currentPanel = currentPanel as? InlineReactionSearchPanel {
                 currentPanel.updateResults(results: results.map({ $0.file }), query: query)
@@ -237,7 +237,7 @@ func inputContextPanelForChatPresentationIntefaceState(_ chatPresentationInterfa
                     }
                 }
                 
-                let query = chatPresentationInterfaceState.interfaceState.composeInputState.inputText.string
+                let query = chatPresentationInterfaceState.interfaceState.composeInputState.content.plainText
                 
                 if let currentPanel = currentPanel as? InlineReactionSearchPanel {
                     currentPanel.updateResults(results: results.map({ $0.file }), query: query)

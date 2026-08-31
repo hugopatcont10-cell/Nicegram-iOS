@@ -1,9 +1,6 @@
 [submodule "submodules/rlottie/rlottie"]
 	path = submodules/rlottie/rlottie
 	url = https://github.com/TelegramMessenger/rlottie.git
-[submodule "build-system/bazel-rules/rules_apple"]
-	path = build-system/bazel-rules/rules_apple
-	url = https://github.com/denis15yo/rules_apple
 [submodule "build-system/bazel-rules/rules_swift"]
 	path = build-system/bazel-rules/rules_swift
         url = https://github.com/bazelbuild/rules_swift.git
@@ -42,3 +39,9 @@
 [submodule "build-system/bazel-rules/sourcekit-bazel-bsp"]
 	path = build-system/bazel-rules/sourcekit-bazel-bsp
 	url = https://github.com/spotify/sourcekit-bazel-bsp.git
+# MARK: Nicegram, assistant package vendored as a submodule.
+# See docs/superpowers/specs/2026-08-19-assistant-submodule-workflow-design.md
+[submodule "packages/nicegram-assistant-ios"]
+	path = packages/nicegram-assistant-ios
+	url = git@bitbucket.org:mobyrix/nicegram-assistant-ios.git
+	branch = develop

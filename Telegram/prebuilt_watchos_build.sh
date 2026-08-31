@@ -134,4 +134,17 @@ fi
 # (that would resolve $OUT_ZIP against the DerivedData dir). --keepParent makes the
 # archive root the .app itself even when $APP is an absolute path.
 rm -f "$OUT_ZIP"
-/usr/bin/ditto -c -k --keepParent "$APP" "$OUT_ZIP"
+# Nicegram WatchApp, --norsrc --noextattr added
+# Load-bearing, not tidiness. macOS puts a
+# `com.apple.provenance` xattr on this tree by itself, and a plain `ditto -c -k`
+# serialises every xattr as an inline AppleDouble `._name` entry in the archive.
+# Those entries survive into Telegram.app/Watch/ and hence into the IPA, where
+# `Frameworks/._TDLibFramework.framework` reads to Apple's validator as a nested
+# bundle carrying no signature. The upload is then rejected with
+#   90034: Missing or invalid signature. The bundle 'app.nicegram' at bundle path
+#          'Payload/Telegram.app' is not signed using an Apple submission certificate.
+# which names the HOST bundle and says nothing about the watch app or about
+# AppleDouble, so it is a genuinely misleading error to debug. Measured: the old
+# flags produced 17 `._*` entries under Watch/ and nowhere else in the payload;
+# these flags produce none.
+/usr/bin/ditto -c -k --keepParent --norsrc --noextattr "$APP" "$OUT_ZIP"

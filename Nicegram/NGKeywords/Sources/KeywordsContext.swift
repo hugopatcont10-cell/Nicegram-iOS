@@ -172,7 +172,8 @@ private final class SearchContext {
             tags: nil,
             minDate: minDate,
             maxDate: nil,
-            folderId: nil
+            folderId: nil,
+            communityId: nil
         )
 
         let context = self.context

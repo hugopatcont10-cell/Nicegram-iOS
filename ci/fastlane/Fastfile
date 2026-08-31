@@ -19,7 +19,7 @@ GOOGLE_APPLICATION_CREDENTIALS_BASE64 = ENV["GOOGLE_APPLICATION_CREDENTIALS_BASE
 KEYCHAIN_NAME = ENV["KEYCHAIN_NAME"]
 KEYCHAIN_PASSWORD = ENV["KEYCHAIN_PASSWORD"]
 SIGN_URL = ENV["SIGN_URL"]
-SOURCE_PATH = ENV["SOURCE_PATH"]
+SOURCE_PATH = ENV["SOURCE_PATH"] || File.expand_path("../..", __dir__)
 TEAM_ID = ENV["TEAM_ID"]
 TELEGRAM_BOT_TOKEN = ENV["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CONFIGURATION_TEST = ENV["TELEGRAM_CONFIGURATION_TEST"]
@@ -147,7 +147,11 @@ lane :resolve_telegram_configuration do |options|
   
   telegram_configuration = JSON.parse(telegram_configuration_string)
   telegram_configuration["is_appstore_build"] = is_appstore_build
-  
+
+  # BUILD_WORKING_DIR (ci/working_dir) is untracked and does not exist in a
+  # fresh worktree -- create it before writing into it rather than assuming
+  # some earlier run already left it behind.
+  FileUtils.mkdir_p(BUILD_WORKING_DIR)
   File.write(telegram_configuration_path, JSON.pretty_generate(telegram_configuration))
 
   telegram_configuration_path
@@ -162,7 +166,10 @@ lane :build_bazel do |options|
 
   artifacts_path = "#{BUILD_WORKING_DIR}/artifacts"
   FileUtils.rm_rf(artifacts_path)
-  FileUtils.mkdir(artifacts_path)
+  # mkdir_p, not mkdir: BUILD_WORKING_DIR itself may not exist yet either
+  # (untracked, absent in a fresh worktree) -- plain mkdir fails when its
+  # parent is missing.
+  FileUtils.mkdir_p(artifacts_path)
 
   shell_command = "cd #{SOURCE_PATH} && python3 build-system/Make/Make.py "
 
@@ -227,6 +234,29 @@ lane :generate_project do |options|
   --gitCodesigningType=development"
 end
 
+lane :compile_check do |options|
+  configuration_path = resolve_telegram_configuration()
+
+  ensure_xcode_symlink()
+
+  # Compile-only gate: simulator configuration, no match, no codesigning of the
+  # output, no upload. --continueOnError forwards to bazel's --keep_going so a
+  # merge that breaks twenty modules reports all twenty in one pass instead of
+  # stopping at the first.
+  shell_command = "cd \"#{SOURCE_PATH}\" && python3 build-system/Make/Make.py "
+  shell_command += "--bazel=#{BAZEL_PATH} " unless BAZEL_PATH.nil?
+  shell_command += "--bazelUserRoot=#{BAZEL_USER_ROOT} " unless BAZEL_USER_ROOT.nil?
+  shell_command += "--cacheDir=#{BAZEL_LOCAL_CACHE} " unless BAZEL_LOCAL_CACHE.nil?
+  shell_command += "--cacheHost=#{BAZEL_REMOTE_CACHE} " unless BAZEL_REMOTE_CACHE.nil?
+  shell_command += "build --continueOnError \
+  --configurationPath=#{configuration_path} \
+  --gitCodesigningRepository=#{SIGN_URL} \
+  --gitCodesigningType=development \
+  --buildNumber=55555 \
+  --configuration=debug_sim_arm64"
+
+  sh shell_command, error_callback: lambda { |result| raise "❌ compile_check failed\n#{result}" }
+end
 
 lane :upload_ipa do |options|
   ipa_path = options[:ipa]

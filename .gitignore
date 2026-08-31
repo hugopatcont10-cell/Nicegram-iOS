@@ -59,6 +59,7 @@ bazel-telegram-ios
 bazel-telegram-ios/*
 bazel-testlogs
 bazel-testlogs/*
+
 xcodeproj.bazelrc
 */*.swp
 *.swp
@@ -101,3 +102,17 @@ tools/sim-watcher/dist/
 !/.claude/
 /.claude/*
 !/.claude/rules/
+!/.claude/settings.json
+!/.claude/skills/
+
+# MARK: Nicegram, Superpowers subagent-driven-development scratch workspace
+/.superpowers/
+
+# Nicegram: building from any worktree leaves a bazel-<worktree-name>
+# convenience symlink at the repo root, which the hardcoded
+# bazel-telegram-ios / bazel-nicegram-ios entries above don't cover
+/bazel-*
+# ...but keep tracking the checked-in bazel-patches/ directory, which is a
+# real directory of Bazel patch files, not a convenience symlink.
+!/bazel-patches
+.mcp.json

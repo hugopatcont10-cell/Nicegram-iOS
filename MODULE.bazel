@@ -29,11 +29,21 @@ local_path_override(
     path = "./build-system/bazel-rules/rules_xcodeproj",
 )
 
+# Nicegram, rules_apple
+# Telegram builds against their own rules_apple fork. We need one fix on top of
+# it that bazelbuild already has and Telegram has not picked up yet. Patching
+# here instead of maintaining a fork of their fork: `local_path_override` is the
+# one override kind with no `patches` attribute, so the submodule had to go.
+# See the patch header for the exit condition; `patch-probe.py` decides it.
 bazel_dep(name = "rules_apple", repo_name = "build_bazel_rules_apple")
-local_path_override(
+git_override(
     module_name = "rules_apple",
-    path = "./build-system/bazel-rules/rules_apple",
+    remote = "https://github.com/ali-fareed/rules_apple.git",
+    commit = "1791d916de4083388f22e20248d8b010d23f0d6b",
+    patches = ["//bazel-patches/rules_apple:0001-swift-dylibs-min-os.patch"],
+    patch_strip = 1,
 )
+#
 
 bazel_dep(name = "rules_swift", repo_name = "build_bazel_rules_swift")
 local_path_override(
@@ -91,7 +101,7 @@ local_path_override(
 # Nicegram, rules_swift_package_manager
 bazel_dep(
     name = "rules_swift_package_manager",
-    version = "1.19.0",
+    version = "1.23.0",
 )
 
 # See the patch file for the rationale. Remove this override together with the
